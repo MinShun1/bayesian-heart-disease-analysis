@@ -1,2 +1,13 @@
 # bayesian-predictive-modeling-heart-disease
-This project applies Bayesian logistic regression to the UCI Heart Disease dataset, comparing models with uninformative priors against domain-informed (informative) priors. The goal is to evaluate how prior specification influences predictive performance, diagnostics, and model comparison metrics (DIC, WAIC).
+# Bayesian Heart Disease Prior Comparison
+
+This project applies **Bayesian logistic regression** to the Heart Disease UCI dataset.
+
+We compare two models:
+- **Baseline model** with uninformative priors.
+- **Hypertuned model** with informative priors (based on [Ahamad et al., 2023](https://www.mdpi.com/2227-9717/11/3/3734)).
+
+## Repository Structure
+- `data/` → dataset used in this project (already preprocessed & scaled).
+- `analysis/` → RMarkdown source files and knitted reports (including exploratory analysis, model diagnostics, and plots).
+- `results/` → comparison summary between baseline and hypertuned models (numerical tables & final conclusions).
