@@ -1,0 +1,167 @@
+---
+title: "Bayesian logistic regression model for Heart Disease UCI dataset"
+output: html_document
+date: "2024-11-30"
+---
+
+The dataset used in this project comes from the **Heart Disease UCI dataset**.  
+It contains medical attributes of patients that can be used to predict the presence of heart disease.  
+
+- **Target variable (`Y`)**:  
+  - 0 = no disease (stage 0)  
+  - 1 = has disease (stage 1 or 2)  
+- **Predictors (`X`)**: A set of medical features that have been **scaled** to standardize their values.  
+- The goal is to build a **Bayesian logistic regression model** to predict the probability of heart disease.
+
+```{r}
+library(rjags)
+
+# Load dataset
+df <- read.csv("C:/Users/Min Shun/Desktop/BINUS/SMT 3/Bayesian Data Analysis/Bayesian_Mini_Project/heart_disease_uci_clean.csv")
+
+# Binarize target variable:
+#   - 0 if stage = 0
+#   - 1 if stage = 1 or 2
+Y <- ifelse(df$num == 0, 0, 1)
+
+# Scale predictors
+X <- as.matrix(scale(df[, 3:11]))
+
+# Data dimensions and MCMC setup
+n <- length(Y)
+burn <- 1000
+iters <- 5000
+chains <- 2
+```
+
+### Preview of the dataset
+```{r}
+# Show the first rows of the dataset
+head(df)
+
+# Summary statistics
+summary(df)
+```
+
+### JAGS Modeling
+```{r}
+# Logistic regression with Bernoulli likelihood
+mod <- textConnection("model{
+  for(i in 1:n){
+    Y[i] ~ dbern(pi[i])                     # Binary outcome
+    logit(pi[i]) <- beta[1] + inprod(X[i, ], beta[2:10])  # Linear predictor
+  }
+
+  # Priors for regression coefficients
+  for(j in 1:10){
+    beta[j] ~ dnorm(0, 0.01)
+  }
+  
+  # Posterior predictive samples
+  for(i in 1:n){
+    Y2[i] ~ dbern(pi[i])
+  }
+
+  # Posterior predictive summary statistics
+  D[1] <- mean(Y2[])            # Mean of predicted Y
+  D[2] <- pow(sd(Y2[]), 2)      # Variance of predicted Y
+}")
+```
+
+### Run Model
+```{r}
+# Provide data for JAGS
+data <- list(Y = Y, X = X, n = n)
+
+# Initialize the model
+model <- jags.model(mod, data = data, n.chains = chains, quiet = TRUE)
+
+# Burn-in phase
+update(model, burn, progress.bar = "none")
+
+# Sample from the posterior
+samps <- coda.samples(model, variable.names = c("beta"), 
+                      n.iter = iters, n.thin = 5, progress.bar = "none")
+```
+
+### Posterior Summary & Diagnostics
+```{r}
+# Summary statistics of posterior samples
+summary(samps)
+
+# Traceplots and density plots
+plot(samps)
+
+# Gelman-Rubin diagnostic (values > 1.1 suggest poor convergence)
+gelman.diag(samps)
+
+# Diagnostics for chain 1
+autocorr(samps[[1]], lag = 1)       # Autocorrelation
+effectiveSize(samps[[1]])           # Effective sample size
+geweke.diag(samps[[1]])             # Geweke diagnostic
+
+# Diagnostics for chain 2
+autocorr(samps[[2]], lag = 1)
+effectiveSize(samps[[2]])
+geweke.diag(samps[[2]])
+```
+
+### Model Comparison (DIC and WAIC)
+```{r}
+# Deviance Information Criterion (DIC)
+DIC <- dic.samples(model, n.iter = iters, n.thin = 5, progress.bar = "none")
+DIC
+
+# Compute WAIC manually
+beta_samples <- as.matrix(samps)
+log_lik <- matrix(NA, nrow = nrow(beta_samples), ncol = n)
+
+for (s in 1:nrow(beta_samples)) {
+  beta <- beta_samples[s, ]
+  logit_pi <- beta[1] + X %*% beta[2:10]
+  pi <- 1 / (1 + exp(-logit_pi))
+  log_lik[s, ] <- dbinom(Y, size = 1, prob = pi, log = TRUE)
+}
+
+lppd <- sum(log(colMeans(exp(log_lik))))
+p_waic <- sum(apply(log_lik, 2, var))
+WAIC <- -2 * (lppd - p_waic)
+WAIC
+```
+
+### Posterior Predictive Checks
+```{r}
+# Test statistics from observed data
+D0 <- c(mean(Y), var(Y))
+Dnames <- c("Mean Y", "Var Y")
+
+# Chain 1
+D <- samps[[1]]
+pval <- rep(0, 2)
+names(pval) <- Dnames
+
+for (j in 1:2) {
+  plot(density(D[, j]), xlim = range(c(D0[j], D[, j])),
+       xlab = "D", ylab = "Posterior probability", main = Dnames[j])
+  abline(v = D0[j], col = 2)
+  legend("topleft", c("Model", "Data"), lty = 1, col = 1:2, bty = "n")
+  
+  pval[j] <- mean(D[, j] > D0[j])
+}
+pval
+
+# Chain 2
+D <- samps[[2]]
+pval <- rep(0, 2)
+names(pval) <- Dnames
+
+for (j in 1:2) {
+  plot(density(D[, j]), xlim = range(c(D0[j], D[, j])),
+       xlab = "D", ylab = "Posterior probability", main = Dnames[j])
+  abline(v = D0[j], col = 2)
+  legend("topleft", c("Model", "Data"), lty = 1, col = 1:2, bty = "n")
+  
+  pval[j] <- mean(D[, j] > D0[j])
+}
+pval
+```

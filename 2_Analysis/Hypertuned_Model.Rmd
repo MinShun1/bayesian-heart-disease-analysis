@@ -1,0 +1,176 @@
+---
+title: "Bayesian Logistic Regression for Heart Disease (Hypertuned Version)"
+output: html_document
+date: "2024-11-30"
+---
+
+## Overview
+This project analyzes the **Heart Disease Dataset** using **Bayesian Logistic Regression**.  
+The target variable (`num`) is **binarized** into two classes:
+- `0` → No heart disease (stage 0)  
+- `1` → Presence of heart disease (stage 1 & 2)  
+
+All predictors are **scaled** before modeling to ensure comparability.  
+
+This is the **hypertuned version** of our previous baseline model. The priors for regression coefficients are not flat but instead **informed by field observations and domain knowledge** as described in:  
+
+[1] Ahamad, G.N., Shafiullah, Fatima, H., Imdadullah, Zakariya, S.M., Abbas, M., Alqahtani, M.S., Usman, M. (2023). *Influence of Optimal Hyperparameters on the Performance of Machine Learning Algorithms for Predicting Heart Disease*. **MDPI**, 11(3), 734. https://www.mdpi.com/2227-9717/11/3/3734  
+
+This approach ensures that the model incorporates domain-informed priors, providing a more realistic and **data-driven Bayesian inference**.
+
+```{r}
+library(rjags)
+
+# Load dataset
+df <- read.csv("C:/Users/Min Shun/Desktop/BINUS/SMT 3/Bayesian Data Analysis/Bayesian_Mini_Project/heart_disease_uci_clean.csv")
+
+# Binarize target variable:
+#   - 0 if stage = 0
+#   - 1 if stage = 1 or 2
+Y <- ifelse(df$num == 0, 0, 1)
+
+# Scale predictors
+X <- as.matrix(scale(df[, 3:11]))
+
+# Data dimensions and MCMC setup
+n <- length(Y)
+burn <- 1000
+iters <- 5000
+chains <- 2
+```
+
+### Preview of the dataset
+```{r}
+# Show the first rows of the dataset
+head(df)
+
+# Summary statistics
+summary(df)
+```
+
+### JAGS Modeling
+```{r}
+mod <- textConnection("model{
+  for(i in 1:n){
+    Y[i] ~ dbern(pi[i])                              # Binary outcome
+    logit(pi[i]) <- beta[1] + inprod(X[i, ], beta[2:10])  
+  }
+
+  # Informative priors (based on field observation)
+  beta[1] ~ dnorm(0, 0.01)                           # Intercept
+  beta[2] ~ dnorm(0.5402041, 1/(9.09^2))             # 'age'
+  beta[3] ~ dnorm(0.69, 1/(0.48^2))                  # 'sex'
+  beta[4] ~ dnorm(0.6581, 1/(17.55^2))               # 'trestbps'
+  beta[5] ~ dnorm(0.4096186, 1/(52.77^2))            # 'chol'
+  beta[6] ~ dnorm(0.16, 1/(0.37^2))                  # 'fbs'
+  beta[7] ~ dnorm(0.6266901, 1/(22.57^2))            # 'thalch'
+  beta[8] ~ dnorm(0.38, 1/(0.48^2))                  # 'exang'
+  beta[9] ~ dnorm(0.4147727, 1/(1.17^2))             # 'oldpeak'
+  beta[10] ~ dnorm(0.75, 1/(0.63^2))                 # 'slope'
+
+  # Posterior predictive checks
+  for(i in 1:n){
+    Y2[i] ~ dbern(pi[i])
+  }
+  D[1] <- mean(Y2[]) 
+  D[2] <- pow(sd(Y2[]), 2)
+}")
+```
+
+### Run Model
+```{r}
+# Provide data for JAGS
+data <- list(Y = Y, X = X, n = n)
+
+# Initialize the model
+model <- jags.model(mod, data = data, n.chains = chains, quiet = TRUE)
+
+# Burn-in phase
+update(model, burn, progress.bar = "none")
+
+# Sample from the posterior
+samps <- coda.samples(model, variable.names = c("beta"), 
+                      n.iter = iters, n.thin = 5, progress.bar = "none")
+```
+
+### Posterior Summary & Diagnostics
+```{r}
+# Summary statistics of posterior samples
+summary(samps)
+
+# Traceplots and density plots
+plot(samps)
+
+# Gelman-Rubin diagnostic (values > 1.1 suggest poor convergence)
+gelman.diag(samps)
+
+# Diagnostics for chain 1
+autocorr(samps[[1]], lag = 1)       # Autocorrelation
+effectiveSize(samps[[1]])           # Effective sample size
+geweke.diag(samps[[1]])             # Geweke diagnostic
+
+# Diagnostics for chain 2
+autocorr(samps[[2]], lag = 1)
+effectiveSize(samps[[2]])
+geweke.diag(samps[[2]])
+```
+
+### Model Comparison (DIC and WAIC)
+```{r}
+# Deviance Information Criterion (DIC)
+DIC <- dic.samples(model, n.iter = iters, n.thin = 5, progress.bar = "none")
+DIC
+
+# Compute WAIC manually
+beta_samples <- as.matrix(samps)
+log_lik <- matrix(NA, nrow = nrow(beta_samples), ncol = n)
+
+for (s in 1:nrow(beta_samples)) {
+  beta <- beta_samples[s, ]
+  logit_pi <- beta[1] + X %*% beta[2:10]
+  pi <- 1 / (1 + exp(-logit_pi))
+  log_lik[s, ] <- dbinom(Y, size = 1, prob = pi, log = TRUE)
+}
+
+lppd <- sum(log(colMeans(exp(log_lik))))
+p_waic <- sum(apply(log_lik, 2, var))
+WAIC <- -2 * (lppd - p_waic)
+WAIC
+```
+
+### Posterior Predictive Checks
+```{r}
+# Test statistics from observed data
+D0 <- c(mean(Y), var(Y))
+Dnames <- c("Mean Y", "Var Y")
+
+# Chain 1
+D <- samps[[1]]
+pval <- rep(0, 2)
+names(pval) <- Dnames
+
+for (j in 1:2) {
+  plot(density(D[, j]), xlim = range(c(D0[j], D[, j])),
+       xlab = "D", ylab = "Posterior probability", main = Dnames[j])
+  abline(v = D0[j], col = 2)
+  legend("topleft", c("Model", "Data"), lty = 1, col = 1:2, bty = "n")
+  
+  pval[j] <- mean(D[, j] > D0[j])
+}
+pval
+
+# Chain 2
+D <- samps[[2]]
+pval <- rep(0, 2)
+names(pval) <- Dnames
+
+for (j in 1:2) {
+  plot(density(D[, j]), xlim = range(c(D0[j], D[, j])),
+       xlab = "D", ylab = "Posterior probability", main = Dnames[j])
+  abline(v = D0[j], col = 2)
+  legend("topleft", c("Model", "Data"), lty = 1, col = 1:2, bty = "n")
+  
+  pval[j] <- mean(D[, j] > D0[j])
+}
+pval
+```
