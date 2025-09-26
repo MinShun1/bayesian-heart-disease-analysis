@@ -1,9 +1,8 @@
 # bayesian-predictive-modeling-heart-disease
-# Bayesian Heart Disease Prior Comparison
 
 This project applies **Bayesian logistic regression** to the Heart Disease UCI dataset.
 
-We compare two models:
+The project compares two models:
 - **Baseline model** with uninformative priors.
 - **Hypertuned model** with informative priors (based on [Ahamad et al., 2023](https://www.mdpi.com/2227-9717/11/3/3734)).
 
