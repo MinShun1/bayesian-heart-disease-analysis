@@ -7,7 +7,7 @@ Heart disease remains one of the leading causes of death globally. Early identif
 
 ## Objectives
 1. **Model Comparison:**  
-   Compare a baseline model with uninformative priors to a hypertuned model with informative priors (based on [Ahamad et al., 2023](https://www.mdpi.com/2227-9717/11/3/3734)).
+   Compare a baseline model with uninformative priors to a hypertuned model with informative priors (based on [Ahamad et al., 2023]).
 2. **Predictive Analysis:**  
    Assess predictive accuracy on unseen data using posterior predictive checks, classification metrics (accuracy, AUC, sensitivity, specificity), and calibration.
 3. **Prescriptive Analysis:**  
